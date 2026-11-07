@@ -94,7 +94,16 @@
                         // --- GITHUB HOSTING SETUP ---
                         // When you host this on GitHub, replace 'null' below with your actual Firebase config object.
                         // Example: const YOUR_FIREBASE_CONFIG = { apiKey: "...", projectId: "...", ... };
-                        const YOUR_FIREBASE_CONFIG = null; 
+                        const YOUR_FIREBASE_CONFIG = const firebaseConfig = {
+  apiKey: "AIzaSyCDV-AJ1JvZfriIN3hbEQLhLYyZlNw_fRk",
+  authDomain: "my-game-assets.firebaseapp.com",
+  projectId: "my-game-assets",
+  storageBucket: "my-game-assets.firebasestorage.app",
+  messagingSenderId: "437176045160",
+  appId: "1:437176045160:web:98cbbf2d1f9250f76db5dd",
+  measurementId: "G-1WV7MMNL89"
+};
+; 
 
                         const appId = typeof __app_id !== 'undefined' ? __app_id : 'standalone-tracker';
                         const firebaseConfig = YOUR_FIREBASE_CONFIG || (typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null);
