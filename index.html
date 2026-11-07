@@ -4,6 +4,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Content Production Log</title>
+    <!-- Firebase Modules -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        const firebaseConfig = {
+            apiKey: "AIzaSyCDV-AJ1JvZfriIN3hbEQLhLYyZlNw_fRk",
+            authDomain: "my-game-assets.firebaseapp.com",
+            projectId: "my-game-assets",
+            storageBucket: "my-game-assets.firebasestorage.app",
+            messagingSenderId: "437176045160",
+            appId: "1:437176045160:web:98cbbf2d1f9250f76db5dd",
+            measurementId: "G-1WV7MMNL89"
+        };
+
+        window.firebaseApp = initializeApp(firebaseConfig);
+        window.firebaseAuth = getAuth(window.firebaseApp);
+        window.firebaseDb = getFirestore(window.firebaseApp);
+        window.firebaseImports = { signInAnonymously, doc, getDoc, setDoc };
+    </script>
     <!-- Tailwind CSS for neat, professional styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React and ReactDOM -->
@@ -73,123 +94,69 @@
             const [allWeeksData, setAllWeeksData] = useState({});
             const [filterGrade, setFilterGrade] = useState('All');
             const [isLoaded, setIsLoaded] = useState(false);
+            const [syncStatus, setSyncStatus] = useState('connecting');
+            const [userId, setUserId] = useState(null);
 
-            // Cloud Sync States
-            const [user, setUser] = useState(null);
-            const [dbSetup, setDbSetup] = useState(null);
-            const [isSyncing, setIsSyncing] = useState(false);
-            const [syncError, setSyncError] = useState(null);
-
-            // Cloud Sync: Initialize Firebase and load data
+            // Initialize Firebase Auth and Data
             useEffect(() => {
-                let unsubscribe = null;
-
                 const initCloudSync = async () => {
+                    if (!window.firebaseAuth) return;
                     try {
-                        // Dynamically import Firebase modules
-                        const { initializeApp } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
-                        const { getAuth, signInAnonymously, signInWithCustomToken } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
-                        const { getFirestore, doc, setDoc, onSnapshot } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
-
-                        // --- GITHUB HOSTING SETUP ---
-                        // When you host this on GitHub, replace 'null' below with your actual Firebase config object.
-                        // Example: const YOUR_FIREBASE_CONFIG = { apiKey: "...", projectId: "...", ... };
-                        const YOUR_FIREBASE_CONFIG = const firebaseConfig = {
-  apiKey: "AIzaSyCDV-AJ1JvZfriIN3hbEQLhLYyZlNw_fRk",
-  authDomain: "my-game-assets.firebaseapp.com",
-  projectId: "my-game-assets",
-  storageBucket: "my-game-assets.firebasestorage.app",
-  messagingSenderId: "437176045160",
-  appId: "1:437176045160:web:98cbbf2d1f9250f76db5dd",
-  measurementId: "G-1WV7MMNL89"
-};
-; 
-
-                        const appId = typeof __app_id !== 'undefined' ? __app_id : 'standalone-tracker';
-                        const firebaseConfig = YOUR_FIREBASE_CONFIG || (typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null);
+                        const userCred = await window.firebaseImports.signInAnonymously(window.firebaseAuth);
+                        const uid = userCred.user.uid;
+                        setUserId(uid);
                         
-                        if (!firebaseConfig) {
-                            throw new Error("No cloud config found. Falling back to local storage.");
-                        }
-
-                        const app = initializeApp(firebaseConfig);
-                        const auth = getAuth(app);
-                        const db = getFirestore(app);
+                        const appId = 'standalone-tracker';
+                        const docRef = window.firebaseImports.doc(window.firebaseDb, 'artifacts', appId, 'users', uid, 'trackerData');
                         
-                        setDbSetup({ db, doc, setDoc });
-
-                        // Authenticate securely
-                        let currentUser;
-                        if (typeof __initial_auth_token !== 'undefined') {
-                            const cred = await signInWithCustomToken(auth, __initial_auth_token);
-                            currentUser = cred.user;
+                        // Load initial data from Firebase
+                        const docSnap = await window.firebaseImports.getDoc(docRef);
+                        if (docSnap.exists() && docSnap.data().weeks) {
+                            setAllWeeksData(docSnap.data().weeks);
                         } else {
-                            const cred = await signInAnonymously(auth);
-                            currentUser = cred.user;
-                        }
-                        setUser(currentUser);
-
-                        // Load data from Cloud Database
-                        // Path structure: /artifacts/{appId}/users/{userId}/{collectionName}/{documentName}
-                        const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'tracker', 'log');
-                        
-                        unsubscribe = onSnapshot(docRef, (docSnap) => {
-                            if (docSnap.exists() && docSnap.data().weeks) {
-                                setAllWeeksData(docSnap.data().weeks);
+                            // First time user: migrate local storage if available
+                            const savedData = localStorage.getItem('contentProductionLog');
+                            if (savedData) {
+                                try {
+                                    setAllWeeksData(JSON.parse(savedData));
+                                } catch (e) {}
                             }
-                            setIsLoaded(true);
-                            setSyncError(null);
-                        }, (error) => {
-                            console.error("Sync error:", error);
-                            setSyncError("Cloud connection lost.");
-                            setIsLoaded(true);
-                        });
-
-                    } catch (err) {
-                        console.log("Using Local Storage:", err.message);
-                        // Fallback to local storage if no cloud config is found (e.g., plain GitHub pages)
-                        const savedData = localStorage.getItem('contentProductionLog');
-                        if (savedData) setAllWeeksData(JSON.parse(savedData));
+                        }
+                        setIsLoaded(true);
+                        setSyncStatus('synced');
+                    } catch (error) {
+                        console.error("Cloud Sync Error", error);
+                        setSyncStatus('error');
                         setIsLoaded(true);
                     }
                 };
-
                 initCloudSync();
-
-                return () => {
-                    if (unsubscribe) unsubscribe();
-                };
             }, []);
 
-            // Save data to Cloud (and LocalStorage as backup) whenever it changes
+            // Save data to Cloud whenever it changes
             useEffect(() => {
-                if (!isLoaded) return;
-
-                // Always save locally as a backup
-                localStorage.setItem('contentProductionLog', JSON.stringify(allWeeksData));
-
-                // Save to cloud if connected
-                if (user && dbSetup) {
-                    const saveToCloud = async () => {
-                        setIsSyncing(true);
-                        try {
-                            const appId = typeof __app_id !== 'undefined' ? __app_id : 'standalone-tracker';
-                            const docRef = dbSetup.doc(dbSetup.db, 'artifacts', appId, 'users', user.uid, 'tracker', 'log');
-                            await dbSetup.setDoc(docRef, { weeks: allWeeksData }, { merge: true });
-                            setSyncError(null);
-                        } catch (err) {
-                            console.error("Failed to save to cloud", err);
-                            setSyncError("Failed to save.");
-                        } finally {
-                            setIsSyncing(false);
-                        }
-                    };
-
-                    // Wait 800ms after you stop typing to save to the cloud to save database writes
-                    const debounce = setTimeout(saveToCloud, 800);
-                    return () => clearTimeout(debounce);
-                }
-            }, [allWeeksData, isLoaded, user, dbSetup]);
+                if (!isLoaded || !userId) return;
+                
+                const saveData = async () => {
+                    setSyncStatus('saving');
+                    const appId = 'standalone-tracker';
+                    const docRef = window.firebaseImports.doc(window.firebaseDb, 'artifacts', appId, 'users', userId, 'trackerData');
+                    try {
+                        await window.firebaseImports.setDoc(docRef, { weeks: allWeeksData }, { merge: true });
+                        setSyncStatus('synced');
+                    } catch (error) {
+                        console.error("Save Error", error);
+                        setSyncStatus('error');
+                    }
+                };
+                
+                // Debounce saving slightly (waits 1 second after you stop typing to push to cloud)
+                const timeoutId = setTimeout(() => {
+                    saveData();
+                }, 1000);
+                
+                return () => clearTimeout(timeoutId);
+            }, [allWeeksData, isLoaded, userId]);
 
             // Get current tasks, or initialize if week is empty
             const currentTasks = useMemo(() => {
@@ -261,25 +228,29 @@
                             <div>
                                 <div className="flex items-center gap-3">
                                     <h1 className="text-2xl font-bold text-slate-800">Weekly Content Log</h1>
-                                    
-                                    {/* Cloud Sync Status Indicator */}
-                                    {user && (
-                                        <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-slate-50 text-slate-600 border border-slate-200 shadow-sm">
-                                            <span className={`w-2 h-2 rounded-full ${syncError ? 'bg-red-500' : isSyncing ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`}></span>
-                                            {syncError ? 'Sync Error' : isSyncing ? 'Saving...' : 'Cloud Synced'}
-                                        </span>
-                                    )}
-                                    {!user && isLoaded && (
-                                        <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-slate-50 text-slate-500 border border-slate-200 shadow-sm" title="Data is saving to this browser only">
-                                            <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-                                            Local Mode
-                                        </span>
-                                    )}
+                                    <span className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full shadow-sm border
+                                        ${syncStatus === 'synced' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : ''}
+                                        ${syncStatus === 'saving' ? 'bg-amber-50 text-amber-600 border-amber-200' : ''}
+                                        ${syncStatus === 'connecting' ? 'bg-blue-50 text-blue-600 border-blue-200' : ''}
+                                        ${syncStatus === 'error' ? 'bg-red-50 text-red-600 border-red-200' : ''}
+                                    `} title="Cloud Synchronization Status">
+                                        <span className={`w-2 h-2 rounded-full 
+                                            ${syncStatus === 'synced' ? 'bg-emerald-500' : ''}
+                                            ${syncStatus === 'saving' ? 'bg-amber-500 animate-pulse' : ''}
+                                            ${syncStatus === 'connecting' ? 'bg-blue-500 animate-pulse' : ''}
+                                            ${syncStatus === 'error' ? 'bg-red-500' : ''}
+                                        `}></span>
+                                        {syncStatus === 'synced' && 'Cloud Synced'}
+                                        {syncStatus === 'saving' && 'Saving...'}
+                                        {syncStatus === 'connecting' && 'Connecting...'}
+                                        {syncStatus === 'error' && 'Offline'}
+                                    </span>
                                 </div>
                                 <p className="text-sm text-slate-500 mt-1">Track and manage your asset creation and uploads.</p>
                             </div>
                             
-                            <div className="flex items-center gap-4 w-full md:w-auto">
+                            <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
+                                
                                 <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-lg border border-slate-200">
                                     <button 
                                         onClick={() => setCurrentWeek(prev => Math.max(1, prev - 1))}
